@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # Backend (Spring Boot)
+  backend:
+    image: ${DOCKER_REGISTRY}/${DOCKER_USER}/${IMAGE_NAME_BACKEND}:${IMAGE_TAG}
+    container_name: babyfoot-backend
+    ports:
+      - "8085:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    command: >
+      java -javaagent:/elastic-apm-agent.jar
+        -Delastic.apm.service_name=babyfoot-backend
+        -Delastic.apm.server_urls=http://apm-server:8200
+        -Delastic.apm.environment=development
+        -Delastic.apm.application_packages=com.babyfoot
+        -Delastic.apm.log_level=INFO
+        -jar app.jar
+    networks:
+      - devnet
+
+  # Frontend (React js)
+  frontend:
+    image: ${DOCKER_REGISTRY}/${DOCKER_USER}/${IMAGE_NAME_FRONTEND}:${IMAGE_TAG}
+    container_name: babyfoot-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8085
+      - REACT_APP_APM_SERVER_URL=http://localhost:8200
+    depends_on:
+      - backend
+    networks:
+      - devnet
+
+
+networks:
+  devnet:
+    external: true

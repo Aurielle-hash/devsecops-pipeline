@@ -1,0 +1,17 @@
+apm-server:
+  host: "0.0.0.0:8200"
+  jaeger:
+    grpc:
+      enabled: true
+      port: 14250
+    http:
+      enabled: true
+      port: 14268
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: "${ELASTIC_USER}"
+  password: "${ELASTIC_PASSWORD}"
+
+setup.kibana:
+  host: "kibana:5601"

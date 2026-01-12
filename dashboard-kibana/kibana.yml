@@ -1,0 +1,13 @@
+server.host: "0.0.0.0"
+
+# Connexion à Elasticsearch
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+
+# Désactiver la sécurité pour tests rapides
+xpack.security.enabled: true
+elasticsearch.username: "${ELASTIC_USERNAME}"
+elasticsearch.password: "${ELASTIC_PASSWORD}"
+
+logging.verbose: true
+
+elasticsearch.requestTimeout: 90000

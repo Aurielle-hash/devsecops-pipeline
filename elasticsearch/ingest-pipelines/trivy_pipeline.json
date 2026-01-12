@@ -1,0 +1,215 @@
+{
+  "description": "Pipeline d'ingestion pour les rapports Trivy normalisés (Container Security) - Frontend/Backend",
+  "processors": [
+    {
+      "set": {
+        "field": "ingest_timestamp",
+        "value": "{{_ingest.timestamp}}"
+      }
+    },
+    {
+      "set": {
+        "field": "tool.name",
+        "value": "trivy",
+        "override": false
+      }
+    },
+    {
+      "set": {
+        "field": "tool.type",
+        "value": "container",
+        "override": false
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.service",
+        "target_field": "service.name",
+        "ignore_missing": true
+      }
+    },
+    {
+      "set": {
+        "field": "service.type",
+        "value": "application",
+        "if": "ctx.service?.name != null"
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.build_id",
+        "target_field": "build.id",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.git.branch",
+        "target_field": "git.branch",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.git.author",
+        "target_field": "git.commit.author",
+        "ignore_missing": true
+      }
+    },
+    {
+      "date": {
+        "field": "metadata.git.commit_time",
+        "target_field": "git.commit.committed",
+        "formats": ["UNIX_MS"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.pipeline.source",
+        "target_field": "pipeline.source",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.pipeline.environment",
+        "target_field": "pipeline.environment",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.trivy.schema_version",
+        "target_field": "trivy.schema_version",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.trivy.artifact_name",
+        "target_field": "trivy.artifact.name",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.trivy.artifact_type",
+        "target_field": "trivy.artifact.type",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.trivy.targets_analyzed",
+        "target_field": "trivy.targets_analyzed",
+        "ignore_missing": true
+      }
+    },
+    {
+      "date": {
+        "field": "metadata.scan_start_time",
+        "target_field": "scan.start_time",
+        "formats": ["UNIX_MS"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "date": {
+        "field": "metadata.scan_end_time",
+        "target_field": "scan.end_time",
+        "formats": ["UNIX_MS"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.total_vulnerabilities",
+        "target_field": "vulnerability.count.total",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.critical",
+        "target_field": "vulnerability.count.critical",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.high",
+        "target_field": "vulnerability.count.high",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.medium",
+        "target_field": "vulnerability.count.medium",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.low",
+        "target_field": "vulnerability.count.low",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.info",
+        "target_field": "vulnerability.count.info",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution",
+        "target_field": "trivy.severity_distribution",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.mttd.build_data.mttd_hours",
+        "target_field": "mttd.current_build_hours",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.mttd.build_data.mttd_min",
+        "target_field": "mttd.current_build_minutes",
+        "ignore_missing": true
+      }
+    },
+    {
+      "remove": {
+        "field": ["metadata", "summary", "metrics.mttd.build_data"],
+        "ignore_missing": true
+      }
+    }
+  ],
+  "on_failure": [
+    {
+      "set": {
+        "field": "error.message",
+        "value": "{{ _ingest.on_failure_message }}"
+      }
+    },
+    {
+      "set": {
+        "field": "error.pipeline",
+        "value": "trivy-pipeline"
+      }
+    },
+    {
+      "set": {
+        "field": "event.outcome",
+        "value": "failure"
+      }
+    }
+  ]
+}

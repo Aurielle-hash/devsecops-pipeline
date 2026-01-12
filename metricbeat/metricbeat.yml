@@ -1,0 +1,269 @@
+# ============================================================================
+# Configuration Metricbeat pour le monitoring infrastructure
+# Version: 2.0
+# Date: 2025-01-08
+#
+# Ce fichier configure Metricbeat pour:
+# - Collecter les métriques système (CPU, RAM, Disk, Network)
+# - Monitorer les conteneurs Docker
+# - Suivre la santé de l'infrastructure pour MTTR
+# ============================================================================
+
+metricbeat.modules:
+
+  # --------------------------------------------------------------------------
+  # MODULE 1: System Metrics (CPU, Memory, Disk, Network)
+  # --------------------------------------------------------------------------
+  - module: system
+    metricsets:
+      - cpu             # Utilisation CPU par core et global
+      - load            # Load average
+      - memory          # Utilisation mémoire
+      - network         # Statistiques réseau
+      - process         # Processus en cours
+      - process_summary # Résumé des processus
+      - socket_summary  # Statistiques sockets
+      - filesystem      # Utilisation disque par filesystem
+      - fsstat          # Statistiques filesystem globales
+      - uptime          # Uptime du système
+    enabled: true
+    period: 10s
+    processes: ['.*']
+
+    # Métriques CPU détaillées
+    cpu.metrics:
+      - percentages
+      - normalized_percentages
+      - ticks
+
+    core.metrics:
+      - percentages
+
+    # Filtrage des processus (top 10 par CPU)
+    process.include_top_n:
+      by_cpu: 10
+      by_memory: 10
+
+    # Enrichissement avec les commandes complètes
+    process.cmdline.cache.enabled: true
+    process.cgroups.enabled: true
+    process.env.whitelist: ['PATH', 'JAVA_OPTS']
+
+    # Filtrer les filesystems
+    filesystem.ignore_types:
+      - tmpfs
+      - devtmpfs
+      - overlay
+      - aufs
+      - squashfs
+
+  # --------------------------------------------------------------------------
+  # MODULE 2: Docker Metrics (Containers, Images, Networks, Volumes)
+  # --------------------------------------------------------------------------
+  - module: docker
+    metricsets:
+      - container       # Métriques par conteneur
+      - cpu             # CPU par conteneur
+      - diskio          # I/O disque par conteneur
+      - event           # Événements Docker (start, stop, die)
+      - healthcheck     # Status des healthchecks
+      - info            # Informations Docker daemon
+      - memory          # Utilisation mémoire par conteneur
+      - network         # Statistiques réseau par conteneur
+    hosts: ["unix:///var/run/docker.sock"]
+    period: 10s
+    enabled: true
+
+    # Filtrer certains conteneurs si nécessaire
+    # labels.dedot: true
+    # match_pids: ["process.pid", "process.ppid"]
+
+  # --------------------------------------------------------------------------
+  # MODULE 3: Elasticsearch Metrics (si on veut monitorer ES lui-même)
+  # --------------------------------------------------------------------------
+  - module: elasticsearch
+    metricsets:
+      - node
+      - node_stats
+      - cluster_stats
+      - index
+      - index_summary
+    period: 30s
+    hosts: ["http://elasticsearch:9200"]
+    username: "${ELASTIC_USERNAME}"
+    password: "${ELASTIC_PASSWORD}"
+    enabled: true
+
+    # Indices à exclure du monitoring
+    index_recovery.active_only: true
+    xpack.enabled: true
+
+  # --------------------------------------------------------------------------
+  # MODULE 4: Kibana Metrics
+  # --------------------------------------------------------------------------
+  - module: kibana
+    metricsets:
+      - stats
+      - status
+    period: 30s
+    hosts: ["http://kibana:5601"]
+    username: "${ELASTIC_USERNAME}"
+    password: "${ELASTIC_PASSWORD}"
+    enabled: true
+    xpack.enabled: true
+
+# ============================== Processors ====================================
+
+processors:
+  # Ajouter les métadonnées host
+  - add_host_metadata:
+      netinfo.enabled: true
+      cache.ttl: 5m
+      geo:
+        name: "Douala, Cameroon"
+        location: "4.0511, 9.7679"
+
+  # Ajouter les métadonnées Docker
+  - add_docker_metadata:
+      host: "unix:///var/run/docker.sock"
+      match_fields: ["system.process.cgroup.id"]
+      match_pids: ["process.pid", "process.ppid"]
+      match_source: true
+      match_source_index: 4
+      match_short_id: false
+      cleanup_timeout: 60
+      labels.dedot: true
+
+  # Ajouter des tags custom
+  - add_fields:
+      target: ''
+      fields:
+        environment: dev
+        project: babyfoot
+        monitoring_source: metricbeat
+
+  # Détecter les anomalies de performance
+  - script:
+      lang: javascript
+      source: >
+        function process(event) {
+          // Détecter CPU élevé
+          var cpu = event.Get("system.cpu.user.pct");
+          if (cpu != null && cpu > 0.8) {
+            event.Put("alert.cpu_high", true);
+            event.Put("alert.level", "warning");
+          }
+        
+          // Détecter mémoire élevée
+          var mem = event.Get("system.memory.actual.used.pct");
+          if (mem != null && mem > 0.85) {
+            event.Put("alert.memory_high", true);
+            event.Put("alert.level", "critical");
+          }
+        
+          // Détecter conteneur arrêté
+          var container_status = event.Get("docker.container.status");
+          if (container_status != null && container_status != "running") {
+            event.Put("alert.container_down", true);
+            event.Put("alert.level", "critical");
+            event.Put("alert.container_name", event.Get("docker.container.name"));
+          }
+        
+          return event;
+        }
+
+# ============================== Elasticsearch Output ==========================
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: "${ELASTIC_USERNAME}"
+  password: "${ELASTIC_PASSWORD}"
+
+  # Index pattern avec rotation quotidienne
+  index: "metricbeat-%{[agent.version]}-%{+yyyy.MM.dd}"
+
+  # Paramètres de performance
+  bulk_max_size: 50
+  worker: 1
+  compression_level: 3
+
+# ============================== Kibana Configuration ==========================
+
+setup.kibana:
+  host: "http://kibana:5601"
+  username: "${ELASTIC_USERNAME}"
+  password: "${ELASTIC_PASSWORD}"
+
+# ============================== Dashboards Setup ==============================
+
+# Importer automatiquement les dashboards Metricbeat
+setup.dashboards.enabled: true
+setup.dashboards.retry.enabled: true
+setup.dashboards.retry.interval: 10s
+setup.dashboards.retry.maximum: 5
+
+# ============================== Index Template ================================
+
+setup.template.name: "metricbeat"
+setup.template.pattern: "metricbeat-*"
+setup.template.enabled: true
+setup.template.overwrite: true
+setup.template.priority: 200
+
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0
+  index.refresh_interval: "5s"
+  index.codec: best_compression
+
+# ============================== ILM Policy ====================================
+
+# Désactiver ILM si vous voulez gérer manuellement les index
+setup.ilm.enabled: false
+
+# Ou configurer ILM pour une rétention de 30 jours
+# setup.ilm.enabled: true
+# setup.ilm.rollover_alias: "metricbeat"
+# setup.ilm.pattern: "{now/d}-000001"
+# setup.ilm.policy_name: "metricbeat-policy"
+
+# ============================== Logging =======================================
+
+logging.level: info
+logging.to_stderr: true
+logging.to_files: false
+logging.metrics.enabled: true
+logging.metrics.period: 30s
+
+# Debug si nécessaire
+# logging.level: debug
+# logging.selectors: ["*"]
+
+# ============================== Monitoring ====================================
+
+# Auto-monitoring de Metricbeat
+monitoring.enabled: true
+monitoring.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: "${ELASTIC_USERNAME}"
+  password: "${ELASTIC_PASSWORD}"
+
+# ============================== Internal Queue ================================
+
+queue.mem:
+  events: 4096
+  flush.min_events: 512
+  flush.timeout: 1s
+
+# ============================== Notes d'utilisation ===========================
+#
+# 1. Les métriques sont collectées toutes les 10s (system/docker) et 30s (ES/Kibana)
+# 2. Les alertes (CPU/Mémoire élevés, conteneur down) sont détectées via le processor
+# 3. Les dashboards Metricbeat sont importés automatiquement dans Kibana
+# 4. Pour visualiser:
+#    - Kibana → Dashboard → [Metricbeat System] Overview
+#    - Kibana → Dashboard → [Metricbeat Docker] Overview
+# 5. Pour créer des alertes basées sur ces métriques:
+#    - Kibana → Stack Management → Rules and Connectors
+#
+# ============================================================================

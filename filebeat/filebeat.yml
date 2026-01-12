@@ -1,0 +1,213 @@
+# ============================================================================
+# Configuration Filebeat pour l'ingestion des rapports de sécurité
+# Version: 2.3 (Ajout exclusion fichiers .tmp pour écriture atomique)
+# Date: 2025-10-19
+#
+# CHANGEMENTS v2.3:
+# - Ajout de exclude_files pour ignorer les fichiers .tmp
+# - Évite les erreurs "unexpected EOF" lors de l'écriture des rapports
+#
+# Ce fichier configure Filebeat pour:
+# - Lire les rapports normalisés (Snyk, Trivy, SonarQube)
+# - Appliquer les pipelines d'ingestion appropriés
+# - Envoyer les données vers Elasticsearch
+# ============================================================================
+
+# ============================== Filebeat Inputs ==============================
+
+filebeat.inputs:
+
+  # --------------------------------------------------------------------------
+  # INPUT 1: Rapports Snyk (SCA + Code)
+  # --------------------------------------------------------------------------
+  - type: filestream
+    id: snyk-normalized-reports
+    enabled: true
+    paths:
+      - /pipeline-reports/build-*/snyk/scans/*-split.ndjson
+
+    # NOUVEAU: Exclure les fichiers temporaires (.tmp)
+    exclude_files: ['\.tmp$']
+
+    scan_frequency: 10s           # Vérifie toutes les 20s si nouveaux fichiers
+    ignore_older: 24h               #  ignorer les anciens fichiers de plus de 24h
+    close.on_state_change.inactive: 1m # Ferme les fichiers inactifs après 1min
+    clean_inactive: 1m               # Nettoie les fichiers inactifs après 1m
+
+
+#     Configuration du parseur JSON
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+          overwrite_keys: true
+
+#     Options de gestion des fichiers
+    prospector:
+      scanner:
+        fingerprint.enabled: true
+
+    file_identity.native: ~
+
+    # Application du pipeline d'ingestion Snyk
+    # Ce pipeline doit être créé au préalable dans Elasticsearch
+    pipeline: snyk-pipeline
+    tags: ["snyk", "security", "sca", "normalized"]
+
+  # --------------------------------------------------------------------------
+  # INPUT 2: Rapports Trivy (Image/Container)
+  # --------------------------------------------------------------------------
+  - type: filestream
+    id: trivy-normalized-reports
+    enabled: true
+    paths:
+      - /pipeline-reports/build-*/trivy/scans/*-split.ndjson
+
+    # NOUVEAU: Exclure les fichiers temporaires (.tmp)
+    exclude_files: ['\.tmp$']
+
+    scan_frequency: 10s           # Vérifie toutes les 20s si nouveaux fichiers
+    ignore_older: 24h               #  ignorer les anciens fichiers de plus de 24h
+    close.on_state_change.inactive: 1m # Ferme les fichiers inactifs après 1min
+    clean_inactive: 1m               # Nettoie les fichiers inactifs après 1m
+
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+          overwrite_keys: true
+
+    prospector:
+      scanner:
+        fingerprint.enabled: true
+    file_identity.native: ~
+
+    # Application du pipeline d'ingestion Trivy
+    pipeline: trivy-pipeline
+    tags: ["trivy", "security", "container", "docker", "normalized"]
+
+  # --------------------------------------------------------------------------
+  # INPUT 3: Rapports SonarQube (SAST)
+  # --------------------------------------------------------------------------
+  - type: filestream
+    id: sonarqube-normalized-reports
+    enabled: true
+    paths:
+      - /pipeline-reports/build-*/sonarqube/scans/*-split.ndjson
+
+    # NOUVEAU: Exclure les fichiers temporaires (.tmp)
+    exclude_files: ['\.tmp$']
+
+    scan_frequency: 10s           # Vérifie toutes les 20s si nouveaux fichiers
+    ignore_older: 24h               #  ignorer les anciens fichiers de plus de 24h
+    close.on_state_change.inactive: 1m # Ferme les fichiers inactifs après 1min
+    clean_inactive: 1m               # Nettoie les fichiers inactifs après 1m
+
+
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+          overwrite_keys: true
+
+    prospector:
+      scanner:
+        fingerprint.enabled: true
+    file_identity.native: ~
+
+    # Application du pipeline d'ingestion SonarQube
+    pipeline: sonarqube-pipeline
+    tags: ["sonarqube", "security", "sast", "code_quality", "normalized"]
+
+
+# ============================== Setup =========================================
+
+# Configuration de la gestion des modèles d'index (Index Templates)
+# Le modèle s'applique à tous les index commençant par 'pipeline-reports-'
+setup.ilm.enabled: false  # Désactive l'Index Lifecycle Management automatique
+setup.template.overwrite: false # Ne pas écraser les templates existants
+setup.template.enabled: false # Désactive le chargement automatique du template
+
+
+# ============================== General Output Settings =======================
+
+# Configuration pour le chargement automatique des dashboards Filebeat par défaut
+setup.kibana:
+  host: "kibana:5601"
+  username: "${ELASTIC_USERNAME}"
+  password: "${ELASTIC_PASSWORD}"
+  protocol: "http"
+
+# ============================== Dashboards ====================================
+# Désactivé car les dashboards personnalisés seront créés dans Kibana
+setup.dashboards.enabled: false
+
+
+# ============================== Logging =======================================
+
+logging.level: info
+logging.to_stderr: true
+logging.to_files: false
+
+# ============================== Monitoring ====================================
+
+# Monitoring de Filebeat lui-même
+monitoring.enabled: false
+
+# ============================== Processors (Global) ===========================
+
+# Processors globaux appliqués à tous les events
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+      netinfo.enabled: true
+      cache.ttl: 1m
+
+  - add_docker_metadata:
+      host: "unix:///var/run/docker.sock"
+      match_source: true
+      match_source_index: 4
+
+  - add_fields:
+      target: observer
+      fields:
+        name: "filebeat-pipeline-security"
+        type: "filebeat"
+        version: "7.17.7"
+
+# ============================== Queue Settings ===============================
+
+# Configuration de la queue interne
+queue.mem:
+  events: 4096
+  flush.min_events: 512
+  flush.timeout: 1s
+
+# ============================== Filebeat Outputs =============================
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: "${ELASTIC_USERNAME}"
+  password: "${ELASTIC_PASSWORD}"
+  protocol: "http"
+
+  # DÉFINITION CRUCIALE DE L'INDEX DE SORTIE
+  # Les données sont envoyées dans un index temporel basé sur le nom du répertoire partagé.
+  index: "pipeline-reports-%{+yyyy.MM.dd}"
+
+
+# ============================== Notes d'utilisation ===========================
+#
+# CHANGEMENTS VERSION 2.3 (2025-10-19):
+# - Ajout de exclude_files: ['\.tmp$'] pour tous les inputs
+# - Ceci évite que Filebeat lise les fichiers pendant leur écriture
+# - Le script normalize-reports.py écrit maintenant en .tmp puis renomme
+# - Plus d'erreurs "unexpected EOF" !
+#
+# 1. Les fichiers *-normalized.json sont créés par normalize-reports.py dans Jenkins
+# 2. Les pipelines (snyk-pipeline, trivy-pipeline, sonarqube-pipeline) doivent être
+#    créés dans Elasticsearch via le script setup-pipelines.sh
+# 3. Les données APM sont gérées directement par APM Server, pas par Filebeat
+# 4. Pour visualiser:
+#    - Dans Kibana, créer un modèle d'index (Index Pattern) : pipeline-reports-*
+#    - Utiliser l'index 'pipeline-reports-*' comme source de données pour les visualisations.

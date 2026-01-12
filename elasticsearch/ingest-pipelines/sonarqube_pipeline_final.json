@@ -1,0 +1,313 @@
+{
+  "description": "Pipeline d'ingestion SonarQube avec champs unifiés pour dashboard de sécurité",
+  "processors": [
+    {
+      "set": {
+        "field": "ingest_timestamp",
+        "value": "{{_ingest.timestamp}}"
+      }
+    },
+    {
+      "set": {
+        "field": "tool.name",
+        "value": "sonarqube",
+        "override": false
+      }
+    },
+    {
+      "set": {
+        "field": "tool.type",
+        "value": "sast",
+        "override": false
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.service",
+        "target_field": "service.name",
+        "ignore_missing": true
+      }
+    },
+    {
+      "set": {
+        "field": "service.type",
+        "value": "application",
+        "if": "ctx.service?.name != null"
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.build_id",
+        "target_field": "build.id",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.git.branch",
+        "target_field": "git.branch",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.git.author",
+        "target_field": "git.commit.author",
+        "ignore_missing": true
+      }
+    },
+    {
+      "date": {
+        "field": "metadata.git.commit_time",
+        "target_field": "git.commit.committed",
+        "formats": ["UNIX_MS"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.pipeline.source",
+        "target_field": "pipeline.source",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.pipeline.environment",
+        "target_field": "pipeline.environment",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.sonarqube.project_key",
+        "target_field": "sonarqube.project.key",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.sonarqube.project_name",
+        "target_field": "sonarqube.project.name",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metadata.sonarqube.quality_gate",
+        "target_field": "sonarqube.quality_gate.status",
+        "ignore_missing": true
+      }
+    },
+    {
+      "date": {
+        "field": "metadata.scan_start_time",
+        "target_field": "scan.start_time",
+        "formats": ["UNIX_MS"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "date": {
+        "field": "metadata.scan_end_time",
+        "target_field": "scan.end_time",
+        "formats": ["UNIX_MS"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.total_vulnerabilities",
+        "target_field": "vulnerability.count.total",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.critical",
+        "target_field": "vulnerability.count.critical",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.high",
+        "target_field": "vulnerability.count.high",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.medium",
+        "target_field": "vulnerability.count.medium",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.low",
+        "target_field": "vulnerability.count.low",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.info",
+        "target_field": "vulnerability.count.info",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.bugs",
+        "target_field": "sonarqube.metrics.bugs",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.vulnerabilities",
+        "target_field": "sonarqube.metrics.vulnerabilities",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.code_smells",
+        "target_field": "sonarqube.metrics.code_smells",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.security_hotspots",
+        "target_field": "sonarqube.metrics.security_hotspots",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.blocker",
+        "target_field": "sonarqube.severity.blocker",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.critical_sonar",
+        "target_field": "sonarqube.severity.critical",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.major",
+        "target_field": "sonarqube.severity.major",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.minor",
+        "target_field": "sonarqube.severity.minor",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "summary.severity_distribution.info",
+        "target_field": "sonarqube.severity.info",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.quality.coverage",
+        "target_field": "sonarqube.quality.coverage_percent",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.quality.duplicated_lines_density",
+        "target_field": "sonarqube.quality.duplication_percent",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.quality.technical_debt_minutes",
+        "target_field": "sonarqube.quality.technical_debt_minutes",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.quality.maintainability_rating",
+        "target_field": "sonarqube.quality.maintainability_rating",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.quality.reliability_rating",
+        "target_field": "sonarqube.quality.reliability_rating",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.quality.security_rating",
+        "target_field": "sonarqube.quality.security_rating",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.quality.lines_of_code",
+        "target_field": "sonarqube.quality.lines_of_code",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.mttd.build_data.mttd_hours",
+        "target_field": "mttd.current_build_hours",
+        "ignore_missing": true
+      }
+    },
+    {
+      "rename": {
+        "field": "metrics.mttd.build_data.mttd_min",
+        "target_field": "mttd.current_build_minutes",
+        "ignore_missing": true
+      }
+    },
+    {
+      "remove": {
+        "field": ["metadata", "summary", "metrics.mttd.build_data"],
+        "ignore_missing": true
+      }
+    }
+  ],
+  "on_failure": [
+    {
+      "set": {
+        "field": "error.message",
+        "value": "{{ _ingest.on_failure_message }}"
+      }
+    },
+    {
+      "set": {
+        "field": "error.pipeline",
+        "value": "sonarqube-pipeline"
+      }
+    },
+    {
+      "set": {
+        "field": "event.outcome",
+        "value": "failure"
+      }
+    }
+  ]
+}

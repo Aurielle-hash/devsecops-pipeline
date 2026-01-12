@@ -1,0 +1,316 @@
+PUT _watcher/watch/watcher_mark_resolved
+{
+  "trigger": {
+    "schedule": {
+      "interval": "1d"  // CHANGEMENT 1: Exécution quotidienne au lieu de 30 jours
+    }
+  },
+  "input": {
+    "chain": {
+      "inputs": [
+        {
+          "latest_report": {
+            "search": {
+              "request": {
+                "indices": ["pipeline-reports-*"],
+                "rest_total_hits_as_int": true,
+                "body": {
+                  "size": 0,
+                  "query": {
+                    "bool": {
+                      "filter": [
+                        { "term": { "doc_type": "vulnerability_report" } }
+                      ],
+                      "must_not": [
+                        { "term": { "doc_type": "resolved_report" } }
+                      ]
+                    }
+                  },
+                  "aggs": {
+                    "by_service_and_tool": {
+                      "composite": {
+                        "size": 200,
+                        "sources": [
+                          { "service": { "terms": { "field": "service.name", "missing_bucket": true } } },
+                          { "tool": { "terms": { "field": "tool.name", "missing_bucket": true } } }
+                        ]
+                      },
+                      "aggs": {
+                        "latest_scan": {
+                          "top_hits": {
+                            "size": 1,
+                            "sort": [{ "@timestamp": "desc" }],
+                            "_source": ["@timestamp","vulnerabilities","metadata","service","tool","report_id","build","git","pipeline"]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "open_vuln_details": {
+            "search": {
+              "request": {
+                "indices": ["pipeline-reports-*"],
+                "rest_total_hits_as_int": true,
+                "body": {
+                  "size": 0,
+                  "query": {
+                    "bool": {
+                      "filter": [
+                        { "term": { "doc_type": "vulnerability_report" } },
+                        {
+                          // CHANGEMENT 2: Filtre pour ne considérer que les rapports des 90 derniers jours
+                          "range": { "@timestamp": { "gte": "now-90d/d" } }
+                        },
+                        {
+                          "nested": {
+                            "path": "vulnerabilities",
+                            "query": {
+                              "term": { "vulnerabilities.unified.status": "open" }
+                            }
+                          }
+                        }
+                      ],
+                      "must_not": [
+                        { "term": { "doc_type": "resolved_report" } }
+                      ]
+                    }
+                  },
+                  "aggs": {
+                    "nested_vulns": {
+                      "nested": {
+                        "path": "vulnerabilities"
+                      },
+                      "aggs": {
+                        "open_only": {
+                          "filter": {
+                            "term": { "vulnerabilities.unified.status": "open" }
+                          },
+                          "aggs": {
+                            "unique_open_ids": {
+                              "terms": {
+                                "field": "vulnerabilities.unified.vulnerability_id",
+                                "size": 5000
+                              },
+                              "aggs": {
+                                "back_to_root": {
+                                  "reverse_nested": {},
+                                  "aggs": {
+                                    "oldest_open_hit": {
+                                      "top_hits": {
+                                        "size": 1,
+                                        "sort": [{ "@timestamp": "asc" }],
+                                        "_source": ["service","tool","vulnerabilities","metadata","report_id","build","git","pipeline","@timestamp"]
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "condition": {
+    "script": {
+      "source": "return ctx.payload.latest_report.aggregations.by_service_and_tool.buckets.size() > 0;",
+      "lang": "painless"
+    }
+  },
+  "transform": {
+    "script": {
+      "lang": "painless",
+      "source": """
+      def resolved_parent = [];
+def resolved_findings = [];
+def latest_reports = ctx.payload.latest_report.aggregations.by_service_and_tool.buckets;
+
+def idsPresentInN = [:];
+def resolutionDate = null;
+
+for (def bucket : latest_reports) {
+def hits = bucket.latest_scan.hits.hits;
+if (hits != null && hits.size() > 0) {
+def reportN = hits[0];
+def tsStr = reportN._source['@timestamp'];
+
+if (resolutionDate == null || java.time.ZonedDateTime.parse(tsStr).isAfter(java.time.ZonedDateTime.parse(resolutionDate))) {
+resolutionDate = tsStr;
+}
+
+if (reportN._source.vulnerabilities != null) {
+for (def vuln : reportN._source.vulnerabilities) {
+if (vuln.unified != null && vuln.unified.vulnerability_id != null) {
+idsPresentInN[vuln.unified.vulnerability_id] = true;
+}
+}
+}
+}
+}
+
+if (resolutionDate == null) return null;
+
+def indexDate = resolutionDate.substring(0,10).replace('-','.');
+
+def open_buckets = ctx.payload.open_vuln_details.aggregations.nested_vulns.open_only.unique_open_ids.buckets;
+
+for (def b : open_buckets) {
+def vulnId = b.key;
+if (idsPresentInN.containsKey(vulnId)) continue;
+
+def sampleHit = b.back_to_root.oldest_open_hit.hits.hits[0];
+def parent = sampleHit._source;
+
+def targetVuln = null;
+if (parent.vulnerabilities != null) {
+for (def v : parent.vulnerabilities) {
+if (v.unified?.vulnerability_id == vulnId) { targetVuln = v; break; }
+}
+}
+if (targetVuln == null) continue;
+
+def unified = targetVuln.unified;
+def lastSeen = unified?.last_seen;
+def resol_date = unified?.resolution_date != null ? unified.resolution_date : null;
+
+if (lastSeen != null && (resol_date == '1970-01-01T00:00:00Z' || resol_date == null)) {
+
+def resolvedMs = java.time.ZonedDateTime.parse(resolutionDate).toInstant().toEpochMilli();
+
+int offsetIndex = lastSeen.indexOf('+');
+if (offsetIndex == -1) offsetIndex = lastSeen.indexOf('-');
+
+def lastSeenDate;
+if (offsetIndex != -1 && lastSeen.length() - offsetIndex == 5) {
+def corrected = lastSeen.substring(0, offsetIndex+3) + ':' + lastSeen.substring(offsetIndex+3);
+lastSeenDate = java.time.ZonedDateTime.parse(corrected);
+} else {
+lastSeenDate = java.time.ZonedDateTime.parse(lastSeen);
+}
+def lastSeenMs = lastSeenDate.toInstant().toEpochMilli();
+long diff = resolvedMs - lastSeenMs;
+double mttrHours = (diff > 0) ? (double) diff / 3600000.0 : 0.0;
+
+// Build resolved_parent entry
+resolved_parent.add([
+"vulnerability_id": vulnId,
+"service": parent.service != null ? parent.service : null,
+"tool": parent.tool != null ? parent.tool : null,
+"unified": [
+"vulnerability_id": vulnId,
+"status": "closed",
+"resolution_date": resolutionDate,
+"last_seen": lastSeen,
+"mttr_hours": mttrHours,
+"category": unified?.category
+]
+]);
+
+// Build Structured Resolved Finding (Fixed for mapping)
+def doc = [:];
+def resolvedObj = [:];
+
+resolvedObj['vulnerability_id'] = vulnId;
+
+if (parent.service != null) { resolvedObj['service'] = parent.service; }
+if (parent.tool != null) { resolvedObj['tool'] = parent.tool; }
+if (parent.metadata != null) { resolvedObj['metadata'] = parent.metadata; }
+
+def unifiedObj = [:];
+if (unified != null) { unifiedObj.putAll(unified); }
+
+unifiedObj['status'] = 'closed';
+unifiedObj['resolution_date'] = resolutionDate;
+unifiedObj['mttr_hours'] = mttrHours;
+unifiedObj['last_seen'] = lastSeen;
+
+resolvedObj['unified'] = unifiedObj;
+
+doc['resolved'] = resolvedObj;
+doc['@timestamp'] = resolutionDate;
+doc['doc_type'] = 'resolved_finding';
+doc['report_id'] = parent.report_id != null ? parent.report_id : null;
+
+resolved_findings.add(doc);
+}
+}
+
+// Return the list of findings directly (no manual bulk construction)
+return [
+"index_date": indexDate,
+"resolutionDate": resolutionDate,
+"resolved_parent": resolved_parent,
+"resolved_findings": resolved_findings // Liste d'objets bien structurés
+];
+"""
+}
+},
+"actions": {
+"store_resolved_parent": {
+"condition": {
+"script": {
+"source": "return ctx.payload.resolved_parent != null && ctx.payload.resolved_parent.size() > 0;",
+"lang": "painless"
+}
+},
+"webhook": {
+"scheme": "http",
+"host": "elasticsearch",
+"port": 9200,
+"method": "post",
+"path": "/pipeline-reports-{{ctx.payload.index_date}}/_update/resolved_report",
+"headers": {
+"Content-Type": "application/json"
+},
+"auth": {
+"basic": {
+"username": "elastic",
+"password": "elastic"
+}
+},
+"body": "{\"doc\": {\"@timestamp\": \"{{ctx.payload.resolutionDate}}\",\"doc_type\": \"resolved_report\",\"resolved\": {{#toJson}}ctx.payload.resolved_parent{{/toJson}}},\"doc_as_upsert\": true}"
+}
+},
+
+"store_resolved_findings_bulk": {
+"condition": {
+"script": {
+"source": "return ctx.payload.resolved_findings != null && ctx.payload.resolved_findings.size() > 0;",
+"lang": "painless"
+}
+},
+"webhook": {
+"scheme": "http",
+"host": "elasticsearch",
+"port": 9200,
+"method": "post",
+"path": "/pipeline-reports-{{ctx.payload.index_date}}/_bulk",
+"headers": {
+"Content-Type": "application/x-ndjson"
+},
+"auth": {
+"basic": {
+"username": "elastic",
+"password": "elastic"
+}
+},
+// Construction du Bulk via Mustache (plus fiable)
+"body": "{{#ctx.payload.resolved_findings}}{ \"index\": {} }\n{{#toJson}}.{{/toJson}}\n{{/ctx.payload.resolved_findings}}"
+}
+}
+}
+}

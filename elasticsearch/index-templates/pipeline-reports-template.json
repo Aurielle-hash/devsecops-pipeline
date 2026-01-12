@@ -1,0 +1,262 @@
+{
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": "1",
+        "number_of_replicas": "1"
+      }
+    },
+    "mappings": {
+      "dynamic": "true",
+      "dynamic_date_formats": [
+        "strict_date_optional_time",
+        "yyyy/MM/dd HH:mm:ss Z||yyyy/MM/dd Z"
+      ],
+      "dynamic_templates": [
+        {
+          "descriptions_and_messages_as_text": {
+            "match": "*description|*message|*detail",
+            "match_mapping_type": "string",
+            "mapping": {
+              "fields": {
+                "keyword": {
+                  "ignore_above": 2048,
+                  "type": "keyword"
+                }
+              },
+              "type": "text"
+            }
+          }
+        },
+        {
+          "strings_as_keywords_default": {
+            "match_mapping_type": "string",
+            "mapping": {
+              "ignore_above": 1024,
+              "type": "keyword"
+            }
+          }
+        }
+      ],
+      "date_detection": true,
+      "numeric_detection": false,
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "build": {
+          "properties": {
+            "id": {
+              "type": "keyword"
+            }
+          }
+        },
+        "doc_type": {
+          "type": "keyword"
+        },
+        "git": {
+          "properties": {
+            "branch": {
+              "type": "keyword"
+            },
+            "commit": {
+              "properties": {
+                "author": {
+                  "type": "keyword"
+                },
+                "committed": {
+                  "type": "date"
+                },
+                "hash": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "mttd": {
+          "properties": {
+            "current_build_hours": {
+              "type": "float"
+            },
+            "current_build_minutes": {
+              "type": "float"
+            }
+          }
+        },
+        "report_id": {
+          "type": "keyword"
+        },
+        "resolved": {
+          "type": "nested",
+          "properties": {
+            "service": {
+              "properties": {
+                "name": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "tool": {
+              "properties": {
+                "name": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "unified": {
+              "properties": {
+                "category": {
+                  "type": "keyword"
+                },
+                "first_seen": {
+                  "type": "date"
+                },
+                "mttr_hours": {
+                  "type": "float"
+                },
+                "resolution_date": {
+                  "type": "date"
+                },
+                "severity": {
+                  "type": "keyword"
+                },
+                "severity_score": {
+                  "type": "float"
+                },
+                "status": {
+                  "type": "keyword"
+                },
+                "vulnerability_id": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "vulnerability_id": {
+              "type": "keyword"
+            }
+          }
+        },
+        "scan": {
+          "properties": {
+            "end_time": {
+              "type": "date"
+            },
+            "start_time": {
+              "type": "date"
+            }
+          }
+        },
+        "service": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "type": {
+              "type": "keyword"
+            }
+          }
+        },
+        "tool": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "type": {
+              "type": "keyword"
+            }
+          }
+        },
+        "vulnerabilities": {
+          "type": "nested",
+          "properties": {
+            "unified": {
+              "properties": {
+                "category": {
+                  "type": "keyword"
+                },
+                "component": {
+                  "type": "keyword"
+                },
+                "first_seen": {
+                  "type": "date"
+                },
+                "mttr_hours": {
+                  "type": "float"
+                },
+                "resolution_date": {
+                  "type": "date"
+                },
+                "severity": {
+                  "type": "keyword"
+                },
+                "severity_score": {
+                  "type": "float"
+                },
+                "status": {
+                  "type": "keyword"
+                },
+                "type": {
+                  "type": "keyword"
+                },
+                "vulnerability_id": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "vulnerability": {
+          "properties": {
+            "age_days": {
+              "type": "long"
+            },
+            "category": {
+              "type": "keyword"
+            },
+            "component": {
+              "type": "keyword"
+            },
+            "first_seen": {
+              "type": "date"
+            },
+            "fix_version": {
+              "type": "keyword"
+            },
+            "is_fixable": {
+              "type": "boolean"
+            },
+            "location": {
+              "type": "keyword"
+            },
+            "mttr_hours": {
+              "type": "float"
+            },
+            "resolution_date": {
+              "type": "date"
+            },
+            "severity": {
+              "type": "keyword"
+            },
+            "severity_score": {
+              "type": "float"
+            },
+            "status": {
+              "type": "keyword"
+            },
+            "team": {
+              "type": "keyword"
+            },
+            "type": {
+              "type": "keyword"
+            },
+            "vulnerability_id": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    },
+    "aliases": {}
+  }
+}
